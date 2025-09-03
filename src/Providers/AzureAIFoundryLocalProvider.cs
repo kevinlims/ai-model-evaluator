@@ -21,10 +21,23 @@ namespace ModelEvaluator.Providers
         private readonly Dictionary<string, ChatClient> _chatClients = new();
         private readonly string[] _availableModels = new[]
         {
+            "phi-4",
+            "mistral-7b-v0.2", 
             "phi-3.5-mini",
+            "phi-3-mini-128k",
+            "phi-3-mini-4k",
+            "deepseek-r1-14b",
+            "deepseek-r1-7b",
             "qwen2.5-0.5b",
-            "llama-3.2-1b",
-            "llama-3.2-3b"
+            "qwen2.5-1.5b",
+            "qwen2.5-coder-0.5b",
+            "qwen2.5-coder-7b",
+            "qwen2.5-coder-1.5b",
+            "phi-4-mini",
+            "phi-4-mini-reasoning",
+            "qwen2.5-14b",
+            "qwen2.5-7b",
+            "qwen2.5-coder-14b"
         };
 
         public string Id => "azure-foundry-local";
@@ -33,7 +46,72 @@ namespace ModelEvaluator.Providers
 
         public async Task<IEnumerable<string>> GetAvailableModelsAsync(CancellationToken cancellationToken = default)
         {
-            // Return available model aliases that can be downloaded/used
+            try
+            {
+                // Try to get the live list from foundry command
+                var processStartInfo = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "foundry",
+                    Arguments = "model list",
+                    RedirectStandardOutput = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                using var process = new System.Diagnostics.Process { StartInfo = processStartInfo };
+                process.Start();
+
+                var output = await process.StandardOutput.ReadToEndAsync();
+                await process.WaitForExitAsync(cancellationToken);
+
+                if (process.ExitCode == 0 && !string.IsNullOrEmpty(output))
+                {
+                    // Parse the output to extract model aliases
+                    var models = new HashSet<string>(); // Use HashSet to avoid duplicates
+                    var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+                    
+                    foreach (var line in lines)
+                    {
+                        var trimmedLine = line.Trim();
+                        
+                        // Skip header, separator lines, and empty lines
+                        if (string.IsNullOrWhiteSpace(trimmedLine) ||
+                            trimmedLine.Contains("Alias") || 
+                            trimmedLine.Contains("---") ||
+                            trimmedLine.StartsWith("CPU") || 
+                            trimmedLine.StartsWith("GPU"))
+                            continue;
+
+                        // Look for lines that start with a letter (model aliases)
+                        if (char.IsLetter(trimmedLine[0]))
+                        {
+                            var parts = trimmedLine.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                            if (parts.Length > 0)
+                            {
+                                var alias = parts[0].Trim();
+                                // Make sure it's a valid model alias and not "Alias" header
+                                if (!string.IsNullOrEmpty(alias) && 
+                                    !alias.Equals("Alias", StringComparison.OrdinalIgnoreCase) &&
+                                    alias.Length > 2)
+                                {
+                                    models.Add(alias);
+                                }
+                            }
+                        }
+                    }
+
+                    if (models.Count > 0)
+                    {
+                        return models.OrderBy(m => m).ToArray();
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                // Fall back to static list if foundry command fails
+            }
+
+            // Return static list as fallback
             await Task.Delay(50, cancellationToken);
             return _availableModels;
         }
