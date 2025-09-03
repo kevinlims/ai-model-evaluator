@@ -36,10 +36,11 @@ namespace ModelEvaluator.UI
                     Console.WriteLine("=== AI Model Evaluator ===");
                     Console.WriteLine("1. List available providers");
                     Console.WriteLine("2. Evaluate single model");
-                    Console.WriteLine("3. View evaluation history");
-                    Console.WriteLine("4. Exit");
+                    Console.WriteLine("3. Evaluate model multiple times (with averaged metrics)");
+                    Console.WriteLine("4. View evaluation history");
+                    Console.WriteLine("5. Exit");
                     Console.WriteLine();
-                    Console.Write("Select an option (1-4): ");
+                    Console.Write("Select an option (1-5): ");
 
                     var input = Console.ReadLine()?.Trim();
                     
@@ -52,9 +53,12 @@ namespace ModelEvaluator.UI
                             await EvaluateSingleModelAsync(cancellationToken);
                             break;
                         case "3":
-                            await ViewHistoryAsync(cancellationToken);
+                            await EvaluateMultipleTimesAsync(cancellationToken);
                             break;
                         case "4":
+                            await ViewHistoryAsync(cancellationToken);
+                            break;
+                        case "5":
                             Console.WriteLine("Goodbye!");
                             return;
                         default:
@@ -183,6 +187,119 @@ namespace ModelEvaluator.UI
 
             // Generate report
             await GenerateAndSaveReportAsync(session, cancellationToken);
+        }
+
+        private async Task EvaluateMultipleTimesAsync(CancellationToken cancellationToken)
+        {
+            Console.WriteLine();
+            Console.WriteLine("=== Multiple Model Evaluation ===");
+
+            var providers = await _evaluationService.GetProvidersAsync();
+            var providerList = providers.ToList();
+            
+            if (!providerList.Any())
+            {
+                Console.WriteLine("No providers are available. Please check your configuration.");
+                return;
+            }
+
+            // Select provider
+            var selectedProvider = await SelectProviderAsync(providerList, cancellationToken);
+            if (selectedProvider == null) return;
+
+            // Select model
+            var selectedModel = await SelectModelAsync(selectedProvider, cancellationToken);
+            if (selectedModel == null) return;
+
+            // Get prompt
+            Console.WriteLine();
+            Console.Write("Enter your prompt: ");
+            var prompt = Console.ReadLine();
+            
+            if (string.IsNullOrWhiteSpace(prompt))
+            {
+                Console.WriteLine("Prompt cannot be empty.");
+                return;
+            }
+
+            // Get number of runs
+            Console.WriteLine();
+            Console.Write("How many times should the evaluation run? (2-10): ");
+            var runsInput = Console.ReadLine();
+            
+            if (!int.TryParse(runsInput, out int numberOfRuns) || numberOfRuns < 2 || numberOfRuns > 10)
+            {
+                Console.WriteLine("Invalid number of runs. Please enter a number between 2 and 10.");
+                return;
+            }
+
+            // Optional delay between runs
+            Console.WriteLine();
+            Console.Write("Delay between runs in seconds (0-30, default 2): ");
+            var delayInput = Console.ReadLine();
+            
+            if (!int.TryParse(delayInput, out int delaySeconds) || delaySeconds < 0 || delaySeconds > 30)
+            {
+                delaySeconds = 2; // Default delay
+            }
+
+            // Create session and run multiple evaluations
+            var session = await _evaluationService.StartSessionAsync($"Multiple evaluation ({numberOfRuns} runs) - {selectedProvider.Name}/{selectedModel}");
+            var results = new List<EvaluationResult>();
+            
+            Console.WriteLine();
+            Console.WriteLine($"Running {numberOfRuns} evaluations...");
+            Console.WriteLine("Collecting metrics: CPU, Memory, GPU, NPU usage for each run...");
+            Console.WriteLine();
+
+            for (int i = 1; i <= numberOfRuns; i++)
+            {
+                Console.Write($"Run {i}/{numberOfRuns}: ");
+                
+                try
+                {
+                    var result = await _evaluationService.EvaluateAsync(
+                        selectedProvider.Id, selectedModel, prompt, session, cancellationToken);
+                    
+                    results.Add(result);
+                    
+                    if (result.IsSuccess)
+                    {
+                        Console.WriteLine($"✓ Success ({result.Duration.TotalMilliseconds:F0}ms)");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"✗ Failed ({result.ErrorMessage})");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"✗ Error: {ex.Message}");
+                    _logger.LogError(ex, "Error during run {RunNumber}", i);
+                }
+
+                // Add delay between runs (except after the last run)
+                if (i < numberOfRuns && delaySeconds > 0)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(delaySeconds), cancellationToken);
+                }
+            }
+
+            await _evaluationService.CompleteSessionAsync(session);
+
+            // Aggregate and display results
+            if (results.Any())
+            {
+                var aggregatedResult = MultipleEvaluationResult.FromResults(results);
+                DisplayMultipleEvaluationResults(aggregatedResult);
+
+                // Generate report
+                await GenerateAndSaveMultipleReportAsync(session, aggregatedResult, cancellationToken);
+            }
+            else
+            {
+                Console.WriteLine("No successful evaluations completed.");
+            }
         }
 
         private async Task ViewHistoryAsync(CancellationToken cancellationToken)
@@ -535,6 +652,148 @@ namespace ModelEvaluator.UI
                 if (result.Metrics.AverageNpuUsage > 0)
                 {
                     Console.WriteLine($"  NPU Usage:    Avg {result.Metrics.AverageNpuUsage:F1}% | Peak {result.Metrics.PeakNpuUsage:F1}%");
+                }
+            }
+        }
+
+        private void DisplayMultipleEvaluationResults(MultipleEvaluationResult result)
+        {
+            Console.WriteLine();
+            Console.WriteLine("=== Multiple Evaluation Results ===");
+            Console.WriteLine($"Provider: {result.ProviderId}");
+            Console.WriteLine($"Model: {result.ModelId}");
+            Console.WriteLine($"Prompt: {result.Prompt}");
+            Console.WriteLine();
+            
+            // Summary statistics
+            Console.WriteLine("Execution Summary:");
+            Console.WriteLine($"  Total runs:      {result.TotalRuns}");
+            Console.WriteLine($"  Successful runs: {result.SuccessfulRuns} ({result.SuccessRate:F1}%)");
+            Console.WriteLine($"  Failed runs:     {result.FailedRuns}");
+            Console.WriteLine();
+            
+            // Timing statistics
+            Console.WriteLine("Timing Statistics:");
+            Console.WriteLine($"  Average duration: {result.AverageDuration.TotalMilliseconds:F0}ms");
+            Console.WriteLine($"  Min duration:     {result.MinDuration.TotalMilliseconds:F0}ms");
+            Console.WriteLine($"  Max duration:     {result.MaxDuration.TotalMilliseconds:F0}ms");
+            Console.WriteLine($"  Total duration:   {result.TotalDuration.TotalSeconds:F1}s");
+            Console.WriteLine();
+
+            // Response analysis
+            Console.WriteLine("Response Analysis:");
+            Console.WriteLine($"  Unique responses: {result.UniqueResponses.Count}");
+            Console.WriteLine($"  Consistent responses: {(result.AllResponsesIdentical ? "Yes" : "No")}");
+            
+            if (result.UniqueResponses.Count > 1 && result.UniqueResponses.Count <= 3)
+            {
+                Console.WriteLine("  Response variations:");
+                foreach (var kvp in result.ResponseFrequency.OrderByDescending(x => x.Value))
+                {
+                    var truncatedResponse = kvp.Key.Length > 100 ? kvp.Key.Substring(0, 100) + "..." : kvp.Key;
+                    Console.WriteLine($"    {kvp.Value}x: {truncatedResponse}");
+                }
+            }
+            Console.WriteLine();
+
+            // Performance metrics
+            if (result.AggregatedMetrics != null)
+            {
+                var metrics = result.AggregatedMetrics;
+                Console.WriteLine("Aggregated Performance Metrics:");
+                Console.WriteLine($"  CPU Usage:");
+                Console.WriteLine($"    Average: {metrics.AverageCpuUsage:F1}% (range: {metrics.MinCpuUsage:F1}% - {metrics.MaxCpuUsage:F1}%)");
+                Console.WriteLine($"    Peak:    {metrics.PeakCpuUsage:F1}%");
+                
+                Console.WriteLine($"  Memory Usage:");
+                Console.WriteLine($"    Average: {metrics.AverageMemoryUsageMB:F0}MB (range: {metrics.MinMemoryUsageMB:F0}MB - {metrics.MaxMemoryUsageMB:F0}MB)");
+                Console.WriteLine($"    Peak:    {metrics.PeakMemoryUsageMB:F0}MB");
+                
+                if (metrics.AverageGpuUsage > 0)
+                {
+                    Console.WriteLine($"  GPU Usage:");
+                    Console.WriteLine($"    Average: {metrics.AverageGpuUsage:F1}% (range: {metrics.MinGpuUsage:F1}% - {metrics.MaxGpuUsage:F1}%)");
+                    Console.WriteLine($"    Peak:    {metrics.PeakGpuUsage:F1}%");
+                }
+                
+                if (metrics.AverageNpuUsage > 0)
+                {
+                    Console.WriteLine($"  NPU Usage:");
+                    Console.WriteLine($"    Average: {metrics.AverageNpuUsage:F1}% (range: {metrics.MinNpuUsage:F1}% - {metrics.MaxNpuUsage:F1}%)");
+                    Console.WriteLine($"    Peak:    {metrics.PeakNpuUsage:F1}%");
+                }
+            }
+
+            // Individual run details (if requested)
+            Console.WriteLine();
+            Console.Write("Show individual run details? (y/n): ");
+            var showDetails = Console.ReadLine()?.Trim().ToLower();
+            if (showDetails == "y" || showDetails == "yes")
+            {
+                Console.WriteLine();
+                Console.WriteLine("Individual Run Details:");
+                for (int i = 0; i < result.IndividualResults.Count; i++)
+                {
+                    var run = result.IndividualResults[i];
+                    Console.WriteLine($"  Run {i + 1}: {(run.IsSuccess ? "✓" : "✗")} {run.Duration.TotalMilliseconds:F0}ms");
+                    if (!run.IsSuccess && !string.IsNullOrEmpty(run.ErrorMessage))
+                    {
+                        Console.WriteLine($"    Error: {run.ErrorMessage}");
+                    }
+                }
+            }
+        }
+
+        private async Task GenerateAndSaveMultipleReportAsync(EvaluationSession session, MultipleEvaluationResult result, CancellationToken cancellationToken)
+        {
+            Console.WriteLine();
+            Console.Write("Generate HTML report for multiple evaluation? (y/n): ");
+            var generateReport = Console.ReadLine()?.Trim().ToLower();
+            
+            if (generateReport == "y" || generateReport == "yes")
+            {
+                try
+                {
+                    Console.WriteLine("Generating HTML report...");
+                    var report = await _evaluationService.GenerateReportAsync(session, "HTML", cancellationToken);
+                    
+                    // Create reports directory if it doesn't exist
+                    var reportsDir = "reports";
+                    Directory.CreateDirectory(reportsDir);
+                    
+                    // Change naming convention: datetime before session ID with "multiple" indicator
+                    var fileName = $"evaluation_report_multiple_{DateTime.Now:yyyyMMdd_HHmmss}_{session.Id}.html";
+                    var filePath = Path.Combine(reportsDir, fileName);
+                    await File.WriteAllTextAsync(filePath, report, cancellationToken);
+                    
+                    Console.WriteLine($"Report saved as: {fileName}");
+                    Console.WriteLine($"Full path: {Path.GetFullPath(filePath)}");
+                    Console.WriteLine($"Report includes data from {result.TotalRuns} evaluation runs with aggregated metrics.");
+                    
+                    Console.Write("Open report in browser? (y/n): ");
+                    var openReport = Console.ReadLine()?.Trim().ToLower();
+                    if (openReport == "y" || openReport == "yes")
+                    {
+                        try
+                        {
+                            var fullPath = Path.GetFullPath(filePath);
+                            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                            {
+                                FileName = fullPath,
+                                UseShellExecute = true
+                            });
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Could not open browser: {ex.Message}");
+                            _logger.LogWarning(ex, "Failed to open browser for report");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error generating report: {ex.Message}");
+                    _logger.LogError(ex, "Error generating HTML report");
                 }
             }
         }
