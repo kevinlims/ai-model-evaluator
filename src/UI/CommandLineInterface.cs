@@ -36,11 +36,10 @@ namespace ModelEvaluator.UI
                     Console.WriteLine("=== AI Model Evaluator ===");
                     Console.WriteLine("1. List available providers");
                     Console.WriteLine("2. Evaluate single model");
-                    Console.WriteLine("3. Compare multiple models");
-                    Console.WriteLine("4. View evaluation history");
-                    Console.WriteLine("5. Exit");
+                    Console.WriteLine("3. View evaluation history");
+                    Console.WriteLine("4. Exit");
                     Console.WriteLine();
-                    Console.Write("Select an option (1-5): ");
+                    Console.Write("Select an option (1-4): ");
 
                     var input = Console.ReadLine()?.Trim();
                     
@@ -53,12 +52,9 @@ namespace ModelEvaluator.UI
                             await EvaluateSingleModelAsync(cancellationToken);
                             break;
                         case "3":
-                            await CompareMultipleModelsAsync(cancellationToken);
-                            break;
-                        case "4":
                             await ViewHistoryAsync(cancellationToken);
                             break;
-                        case "5":
+                        case "4":
                             Console.WriteLine("Goodbye!");
                             return;
                         default:
@@ -189,105 +185,231 @@ namespace ModelEvaluator.UI
             await GenerateAndSaveReportAsync(session, cancellationToken);
         }
 
-        private async Task CompareMultipleModelsAsync(CancellationToken cancellationToken)
-        {
-            Console.WriteLine();
-            Console.WriteLine("=== Multiple Model Comparison ===");
-
-            var providers = await _evaluationService.GetProvidersAsync();
-            var providerList = providers.ToList();
-            
-            if (!providerList.Any())
-            {
-                Console.WriteLine("No providers are available. Please check your configuration.");
-                return;
-            }
-
-            // Get prompt first
-            Console.Write("Enter your prompt: ");
-            var prompt = Console.ReadLine();
-            
-            if (string.IsNullOrWhiteSpace(prompt))
-            {
-                Console.WriteLine("Prompt cannot be empty.");
-                return;
-            }
-
-            // Select multiple models
-            var selectedModels = new List<(IModelProvider provider, string model)>();
-            
-            Console.WriteLine();
-            Console.WriteLine("Select models to compare (enter 'done' when finished):");
-            
-            while (true)
-            {
-                Console.WriteLine($"\nCurrently selected: {selectedModels.Count} models");
-                if (selectedModels.Any())
-                {
-                    foreach (var (prov, mod) in selectedModels)
-                    {
-                        Console.WriteLine($"  - {prov.Name}: {mod}");
-                    }
-                }
-                
-                Console.WriteLine();
-                var provider = await SelectProviderAsync(providerList, cancellationToken, allowCancel: true);
-                if (provider == null) break;
-                
-                var model = await SelectModelAsync(provider, cancellationToken, allowCancel: true);
-                if (model == null) break;
-                
-                selectedModels.Add((provider, model));
-                
-                Console.WriteLine($"Added {provider.Name}: {model}");
-                Console.Write("Add another model? (y/n): ");
-                var continueChoice = Console.ReadLine()?.Trim().ToLower();
-                if (continueChoice != "y" && continueChoice != "yes")
-                {
-                    break;
-                }
-            }
-
-            if (!selectedModels.Any())
-            {
-                Console.WriteLine("No models selected for comparison.");
-                return;
-            }
-
-            // Create session and evaluate all models
-            var session = await _evaluationService.StartSessionAsync($"Comparison of {selectedModels.Count} models");
-            
-            Console.WriteLine();
-            Console.WriteLine($"Evaluating {selectedModels.Count} models... This may take several moments.");
-            
-            for (int i = 0; i < selectedModels.Count; i++)
-            {
-                var (modelProvider, modelName) = selectedModels[i];
-                Console.WriteLine($"[{i + 1}/{selectedModels.Count}] Evaluating {modelProvider.Name}: {modelName}");
-                
-                var result = await _evaluationService.EvaluateAsync(
-                    modelProvider.Id, modelName, prompt, session, cancellationToken);
-                
-                Console.WriteLine($"   ✓ Completed in {result.Duration.TotalMilliseconds:F0}ms - {(result.IsSuccess ? "Success" : "Failed")}");
-            }
-
-            await _evaluationService.CompleteSessionAsync(session);
-
-            // Display comparison results
-            DisplayComparisonResults(session);
-
-            // Generate report
-            await GenerateAndSaveReportAsync(session, cancellationToken);
-        }
-
         private async Task ViewHistoryAsync(CancellationToken cancellationToken)
         {
             Console.WriteLine();
             Console.WriteLine("=== Evaluation History ===");
-            Console.WriteLine("(This feature would show previous evaluation sessions)");
-            Console.WriteLine("Implementation: Store sessions in a database or file system");
             
-            await Task.Delay(1000, cancellationToken);
+            var reportsDir = "reports";
+            
+            if (!Directory.Exists(reportsDir))
+            {
+                Console.WriteLine("No reports directory found. No evaluation history available.");
+                Console.WriteLine("Run some evaluations first to generate reports.");
+                return;
+            }
+
+            var reportFiles = Directory.GetFiles(reportsDir, "*.html")
+                .Select(file => new FileInfo(file))
+                .OrderByDescending(file => file.LastWriteTime)
+                .ToList();
+
+            if (!reportFiles.Any())
+            {
+                Console.WriteLine("No evaluation reports found in the reports directory.");
+                Console.WriteLine("Run some evaluations first to generate reports.");
+                return;
+            }
+
+            Console.WriteLine($"Found {reportFiles.Count} evaluation report(s):");
+            Console.WriteLine();
+            
+            for (int i = 0; i < reportFiles.Count; i++)
+            {
+                var file = reportFiles[i];
+                var fileName = Path.GetFileNameWithoutExtension(file.Name);
+                var parts = fileName.Split('_');
+                
+                // Try to parse the filename format: evaluation_report_yyyyMMdd_HHmmss_sessionId
+                string displayName = fileName;
+                string dateTime = "Unknown";
+                string sessionId = "Unknown";
+                
+                if (parts.Length >= 4 && parts[0] == "evaluation" && parts[1] == "report")
+                {
+                    var datePart = parts[2];
+                    var timePart = parts[3];
+                    sessionId = parts.Length > 4 ? string.Join("_", parts.Skip(4)) : "Unknown";
+                    
+                    if (DateTime.TryParseExact($"{datePart}_{timePart}", "yyyyMMdd_HHmmss", null, System.Globalization.DateTimeStyles.None, out var parsedDateTime))
+                    {
+                        dateTime = parsedDateTime.ToString("yyyy-MM-dd HH:mm:ss");
+                    }
+                }
+                
+                // Extract provider and model info from the HTML file
+                var (provider, model, prompt) = await ExtractReportInfoAsync(file.FullName);
+                
+                Console.WriteLine($"{i + 1,2}. {dateTime} - Session: {sessionId}");
+                Console.WriteLine($"     Provider: {provider} | Model: {model}");
+                if (!string.IsNullOrEmpty(prompt))
+                {
+                    var truncatedPrompt = prompt.Length > 50 ? prompt.Substring(0, 50) + "..." : prompt;
+                    Console.WriteLine($"     Prompt: {truncatedPrompt}");
+                }
+                Console.WriteLine($"     File: {file.Name} ({file.Length / 1024:F1} KB)");
+                Console.WriteLine($"     Modified: {file.LastWriteTime:yyyy-MM-dd HH:mm:ss}");
+                Console.WriteLine();
+            }
+
+            Console.WriteLine("Options:");
+            Console.WriteLine("  Enter a number (1-{0}) to open a report", reportFiles.Count);
+            Console.WriteLine("  Enter 'delete' to delete a report");
+            Console.WriteLine("  Enter 'clear' to delete all reports");
+            Console.WriteLine("  Press Enter to return to main menu");
+            Console.WriteLine();
+            Console.Write("Your choice: ");
+            
+            var input = Console.ReadLine()?.Trim();
+            
+            if (string.IsNullOrEmpty(input))
+            {
+                return; // Return to main menu
+            }
+            
+            if (input.Equals("clear", StringComparison.OrdinalIgnoreCase))
+            {
+                Console.Write("Are you sure you want to delete ALL reports? (y/N): ");
+                var confirm = Console.ReadLine()?.Trim().ToLower();
+                if (confirm == "y" || confirm == "yes")
+                {
+                    try
+                    {
+                        foreach (var file in reportFiles)
+                        {
+                            file.Delete();
+                        }
+                        Console.WriteLine($"Deleted {reportFiles.Count} report(s).");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error deleting reports: {ex.Message}");
+                        _logger.LogError(ex, "Error deleting all reports");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("Operation cancelled.");
+                }
+                return;
+            }
+            
+            if (input.Equals("delete", StringComparison.OrdinalIgnoreCase))
+            {
+                Console.Write($"Enter report number to delete (1-{reportFiles.Count}): ");
+                var deleteInput = Console.ReadLine()?.Trim();
+                
+                if (int.TryParse(deleteInput, out int deleteChoice) && deleteChoice >= 1 && deleteChoice <= reportFiles.Count)
+                {
+                    var fileToDelete = reportFiles[deleteChoice - 1];
+                    Console.Write($"Delete '{fileToDelete.Name}'? (y/N): ");
+                    var confirm = Console.ReadLine()?.Trim().ToLower();
+                    
+                    if (confirm == "y" || confirm == "yes")
+                    {
+                        try
+                        {
+                            fileToDelete.Delete();
+                            Console.WriteLine($"Deleted '{fileToDelete.Name}'.");
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Error deleting report: {ex.Message}");
+                            _logger.LogError(ex, "Error deleting report {FileName}", fileToDelete.Name);
+                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine("Delete cancelled.");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("Invalid report number.");
+                }
+                return;
+            }
+            
+            // Try to parse as report number to open
+            if (int.TryParse(input, out int choice) && choice >= 1 && choice <= reportFiles.Count)
+            {
+                var selectedFile = reportFiles[choice - 1];
+                
+                try
+                {
+                    Console.WriteLine($"Opening '{selectedFile.Name}' in your default browser...");
+                    
+                    var startInfo = new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = selectedFile.FullName,
+                        UseShellExecute = true
+                    };
+                    
+                    System.Diagnostics.Process.Start(startInfo);
+                    Console.WriteLine("Report opened successfully.");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Could not open report: {ex.Message}");
+                    Console.WriteLine($"You can manually open: {selectedFile.FullName}");
+                    _logger.LogWarning(ex, "Failed to open report {FileName}", selectedFile.Name);
+                }
+            }
+            else
+            {
+                Console.WriteLine("Invalid choice. Please enter a number, 'delete', 'clear', or press Enter.");
+            }
+            
+            await Task.Delay(100, cancellationToken); // Small delay for responsiveness
+        }
+
+        private async Task<(string provider, string model, string prompt)> ExtractReportInfoAsync(string filePath)
+        {
+            try
+            {
+                var htmlContent = await File.ReadAllTextAsync(filePath);
+                
+                string provider = "Unknown";
+                string model = "Unknown";
+                string prompt = "";
+                
+                // Extract from table row - looking for the pattern in the results table
+                var tableRowMatch = System.Text.RegularExpressions.Regex.Match(
+                    htmlContent, 
+                    @"<tr>\s*<td>([^<]+)</td>\s*<td>([^<]+)</td>\s*<td[^>]*>([^<]+)</td>", 
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
+                
+                if (tableRowMatch.Success)
+                {
+                    provider = tableRowMatch.Groups[1].Value.Trim();
+                    model = tableRowMatch.Groups[2].Value.Trim();
+                    var promptValue = tableRowMatch.Groups[3].Value.Trim();
+                    
+                    // Decode HTML entities in prompt
+                    prompt = System.Net.WebUtility.HtmlDecode(promptValue);
+                }
+                else
+                {
+                    // Fallback: try to find provider and model in metrics section
+                    var metricsMatch = System.Text.RegularExpressions.Regex.Match(
+                        htmlContent, 
+                        @"<h3>([^-]+)-\s*([^<]+)</h3>", 
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    
+                    if (metricsMatch.Success)
+                    {
+                        provider = metricsMatch.Groups[1].Value.Trim();
+                        model = metricsMatch.Groups[2].Value.Trim();
+                    }
+                }
+                
+                return (provider, model, prompt);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to extract report info from {FilePath}", filePath);
+                return ("Unknown", "Unknown", "");
+            }
         }
 
         private Task<IModelProvider?> SelectProviderAsync(
@@ -413,46 +535,6 @@ namespace ModelEvaluator.UI
                 if (result.Metrics.AverageNpuUsage > 0)
                 {
                     Console.WriteLine($"  NPU Usage:    Avg {result.Metrics.AverageNpuUsage:F1}% | Peak {result.Metrics.PeakNpuUsage:F1}%");
-                }
-            }
-        }
-
-        private void DisplayComparisonResults(EvaluationSession session)
-        {
-            Console.WriteLine();
-            Console.WriteLine("=== Comparison Results ===");
-            Console.WriteLine($"Session: {session.Id}");
-            Console.WriteLine($"Total Duration: {session.Duration?.TotalSeconds:F1}s");
-            Console.WriteLine();
-
-            var successfulResults = session.Results.Where(r => r.IsSuccess).ToList();
-            var failedResults = session.Results.Where(r => !r.IsSuccess).ToList();
-
-            Console.WriteLine($"Results: {successfulResults.Count} successful, {failedResults.Count} failed");
-            Console.WriteLine();
-
-            if (successfulResults.Any())
-            {
-                Console.WriteLine("Performance Summary:");
-                Console.WriteLine($"{"Provider",-15} {"Model",-20} {"Duration",-10} {"CPU Avg",-8} {"Memory Avg",-10}");
-                Console.WriteLine(new string('─', 70));
-
-                foreach (var result in successfulResults.OrderBy(r => r.Duration))
-                {
-                    var cpuAvg = result.Metrics?.AverageCpuUsage ?? 0;
-                    var memAvg = result.Metrics?.AverageMemoryUsageMB ?? 0;
-                    
-                    Console.WriteLine($"{result.ProviderId,-15} {result.ModelId,-20} {result.Duration.TotalMilliseconds:F0}ms{"",-4} {cpuAvg:F1}%{"",2} {memAvg:F0}MB");
-                }
-            }
-
-            if (failedResults.Any())
-            {
-                Console.WriteLine();
-                Console.WriteLine("Failed Evaluations:");
-                foreach (var result in failedResults)
-                {
-                    Console.WriteLine($"  ✗ {result.ProviderId}: {result.ModelId} - {result.ErrorMessage}");
                 }
             }
         }
