@@ -21,22 +21,22 @@ namespace ModelEvaluator.Providers
         private readonly Dictionary<string, ChatClient> _chatClients = new();
         private readonly string[] _availableModels = new[]
         {
-            "phi-4",
-            "mistral-7b-v0.2", 
-            "phi-3.5-mini",
-            "phi-3-mini-128k",
-            "phi-3-mini-4k",
             "deepseek-r1-14b",
             "deepseek-r1-7b",
-            "qwen2.5-0.5b",
-            "qwen2.5-1.5b",
-            "qwen2.5-coder-0.5b",
-            "qwen2.5-coder-7b",
-            "qwen2.5-coder-1.5b",
+            "mistral-7b-v0.2",
+            "phi-3-mini-128k",
+            "phi-3-mini-4k",
+            "phi-3.5-mini",
+            "phi-4",
             "phi-4-mini",
             "phi-4-mini-reasoning",
-            "qwen2.5-14b",
+            "qwen2.5-0.5b",
+            "qwen2.5-1.5b",
             "qwen2.5-7b",
+            "qwen2.5-14b",
+            "qwen2.5-coder-0.5b",
+            "qwen2.5-coder-1.5b",
+            "qwen2.5-coder-7b",
             "qwen2.5-coder-14b"
         };
 
