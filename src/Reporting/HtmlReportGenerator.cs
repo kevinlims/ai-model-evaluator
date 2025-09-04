@@ -53,6 +53,9 @@ namespace ModelEvaluator.Reporting
             // Summary
             GenerateSummarySection(html, session);
             
+            // Device Metadata
+            GenerateDeviceMetadataSection(html, session);
+            
             // Results
             GenerateResultsSection(html, session);
             
@@ -110,6 +113,130 @@ namespace ModelEvaluator.Reporting
                 html.AppendLine($"               </div>");
             }
             
+            html.AppendLine("            </div>");
+            html.AppendLine("        </section>");
+        }
+
+        private void GenerateDeviceMetadataSection(StringBuilder html, EvaluationSession session)
+        {
+            if (session.DeviceInfo == null) return;
+
+            var device = session.DeviceInfo;
+            
+            html.AppendLine("        <section class=\"device-metadata\">");
+            html.AppendLine("            <h2>System Information</h2>");
+            html.AppendLine("            <div class=\"device-info\">");
+            
+            // Operating System Information
+            html.AppendLine("                <div class=\"info-group\">");
+            html.AppendLine("                    <h3>Operating System</h3>");
+            html.AppendLine("                    <div class=\"info-grid\">");
+            html.AppendLine($"                       <div class=\"info-item\">");
+            html.AppendLine($"                           <span class=\"info-label\">OS:</span>");
+            html.AppendLine($"                           <span class=\"info-value\">{System.Web.HttpUtility.HtmlEncode(device.OperatingSystem)}</span>");
+            html.AppendLine($"                       </div>");
+            html.AppendLine($"                       <div class=\"info-item\">");
+            html.AppendLine($"                           <span class=\"info-label\">Version:</span>");
+            html.AppendLine($"                           <span class=\"info-value\">{System.Web.HttpUtility.HtmlEncode(device.OSVersion)}</span>");
+            html.AppendLine($"                       </div>");
+            html.AppendLine($"                       <div class=\"info-item\">");
+            html.AppendLine($"                           <span class=\"info-label\">Architecture:</span>");
+            html.AppendLine($"                           <span class=\"info-value\">{System.Web.HttpUtility.HtmlEncode(device.OSArchitecture)}</span>");
+            html.AppendLine($"                       </div>");
+            html.AppendLine($"                       <div class=\"info-item\">");
+            html.AppendLine($"                           <span class=\"info-label\">Machine:</span>");
+            html.AppendLine($"                           <span class=\"info-value\">{System.Web.HttpUtility.HtmlEncode(device.MachineName)}</span>");
+            html.AppendLine($"                       </div>");
+            html.AppendLine("                    </div>");
+            html.AppendLine("                </div>");
+
+            // Processor Information
+            html.AppendLine("                <div class=\"info-group\">");
+            html.AppendLine("                    <h3>Processor</h3>");
+            html.AppendLine("                    <div class=\"info-grid\">");
+            html.AppendLine($"                       <div class=\"info-item\">");
+            html.AppendLine($"                           <span class=\"info-label\">Name:</span>");
+            html.AppendLine($"                           <span class=\"info-value\">{System.Web.HttpUtility.HtmlEncode(device.ProcessorName)}</span>");
+            html.AppendLine($"                       </div>");
+            html.AppendLine($"                       <div class=\"info-item\">");
+            html.AppendLine($"                           <span class=\"info-label\">Architecture:</span>");
+            html.AppendLine($"                           <span class=\"info-value\">{System.Web.HttpUtility.HtmlEncode(device.ProcessorArchitecture)}</span>");
+            html.AppendLine($"                       </div>");
+            html.AppendLine($"                       <div class=\"info-item\">");
+            html.AppendLine($"                           <span class=\"info-label\">Physical Cores:</span>");
+            html.AppendLine($"                           <span class=\"info-value\">{device.ProcessorCores}</span>");
+            html.AppendLine($"                       </div>");
+            html.AppendLine($"                       <div class=\"info-item\">");
+            html.AppendLine($"                           <span class=\"info-label\">Logical Processors:</span>");
+            html.AppendLine($"                           <span class=\"info-value\">{device.LogicalProcessors}</span>");
+            html.AppendLine($"                       </div>");
+            html.AppendLine("                    </div>");
+            html.AppendLine("                </div>");
+
+            // Memory Information
+            html.AppendLine("                <div class=\"info-group\">");
+            html.AppendLine("                    <h3>Memory</h3>");
+            html.AppendLine("                    <div class=\"info-grid\">");
+            html.AppendLine($"                       <div class=\"info-item\">");
+            html.AppendLine($"                           <span class=\"info-label\">Total Memory:</span>");
+            html.AppendLine($"                           <span class=\"info-value\">{device.TotalMemoryMB:N0} MB ({device.TotalMemoryMB / 1024.0:F1} GB)</span>");
+            html.AppendLine($"                       </div>");
+            if (device.AvailableMemoryMB > 0)
+            {
+                html.AppendLine($"                       <div class=\"info-item\">");
+                html.AppendLine($"                           <span class=\"info-label\">Available Memory:</span>");
+                html.AppendLine($"                           <span class=\"info-value\">{device.AvailableMemoryMB:N0} MB ({device.AvailableMemoryMB / 1024.0:F1} GB)</span>");
+                html.AppendLine($"                       </div>");
+            }
+            html.AppendLine("                    </div>");
+            html.AppendLine("                </div>");
+
+            // GPU Information
+            if (device.GpuDevices.Any())
+            {
+                html.AppendLine("                <div class=\"info-group\">");
+                html.AppendLine("                    <h3>Graphics Devices</h3>");
+                html.AppendLine("                    <ul class=\"gpu-list\">");
+                foreach (var gpu in device.GpuDevices)
+                {
+                    html.AppendLine($"                       <li>{System.Web.HttpUtility.HtmlEncode(gpu)}</li>");
+                }
+                html.AppendLine("                    </ul>");
+                html.AppendLine("                </div>");
+            }
+
+            // Runtime Information
+            html.AppendLine("                <div class=\"info-group\">");
+            html.AppendLine("                    <h3>Runtime Environment</h3>");
+            html.AppendLine("                    <div class=\"info-grid\">");
+            html.AppendLine($"                       <div class=\"info-item\">");
+            html.AppendLine($"                           <span class=\"info-label\">.NET Version:</span>");
+            html.AppendLine($"                           <span class=\"info-value\">{System.Web.HttpUtility.HtmlEncode(device.DotNetVersion)}</span>");
+            html.AppendLine($"                       </div>");
+            
+            if (device.AdditionalInfo.ContainsKey("FrameworkDescription"))
+            {
+                html.AppendLine($"                       <div class=\"info-item\">");
+                html.AppendLine($"                           <span class=\"info-label\">Framework:</span>");
+                html.AppendLine($"                           <span class=\"info-value\">{System.Web.HttpUtility.HtmlEncode(device.AdditionalInfo["FrameworkDescription"])}</span>");
+                html.AppendLine($"                       </div>");
+            }
+            
+            if (device.AdditionalInfo.ContainsKey("RuntimeIdentifier"))
+            {
+                html.AppendLine($"                       <div class=\"info-item\">");
+                html.AppendLine($"                           <span class=\"info-label\">Runtime ID:</span>");
+                html.AppendLine($"                           <span class=\"info-value\">{System.Web.HttpUtility.HtmlEncode(device.AdditionalInfo["RuntimeIdentifier"])}</span>");
+                html.AppendLine($"                       </div>");
+            }
+            
+            html.AppendLine($"                       <div class=\"info-item\">");
+            html.AppendLine($"                           <span class=\"info-label\">Data Collected:</span>");
+            html.AppendLine($"                           <span class=\"info-value\">{device.CollectedAt:yyyy-MM-dd HH:mm:ss} UTC</span>");
+            html.AppendLine($"                       </div>");
+            html.AppendLine("                    </div>");
+            html.AppendLine("                </div>");
+
             html.AppendLine("            </div>");
             html.AppendLine("        </section>");
         }
@@ -410,6 +537,82 @@ namespace ModelEvaluator.Reporting
                     }
                     
                     .charts-grid {
+                        grid-template-columns: 1fr;
+                    }
+                }
+
+                /* Device Metadata Styles */
+                .device-metadata .device-info {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+                    gap: 20px;
+                }
+
+                .info-group {
+                    border: 1px solid #e9ecef;
+                    border-radius: 8px;
+                    padding: 20px;
+                    background: #f8f9fa;
+                }
+
+                .info-group h3 {
+                    color: #495057;
+                    margin-bottom: 15px;
+                    font-size: 1.2rem;
+                    border-bottom: 2px solid #007bff;
+                    padding-bottom: 8px;
+                }
+
+                .info-grid {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                    gap: 12px;
+                }
+
+                .info-item {
+                    display: flex;
+                    flex-direction: column;
+                    padding: 8px;
+                    background: white;
+                    border-radius: 4px;
+                    border-left: 3px solid #007bff;
+                }
+
+                .info-label {
+                    font-size: 0.9rem;
+                    color: #6c757d;
+                    font-weight: 600;
+                    margin-bottom: 4px;
+                }
+
+                .info-value {
+                    font-size: 1rem;
+                    color: #495057;
+                    font-weight: 500;
+                    word-break: break-word;
+                }
+
+                .gpu-list {
+                    list-style: none;
+                    padding: 0;
+                }
+
+                .gpu-list li {
+                    padding: 8px 12px;
+                    background: white;
+                    border-radius: 4px;
+                    margin-bottom: 8px;
+                    border-left: 3px solid #28a745;
+                    font-family: 'Courier New', monospace;
+                    font-size: 0.9rem;
+                }
+
+                @media (max-width: 768px) {
+                    .device-metadata .device-info {
+                        grid-template-columns: 1fr;
+                    }
+                    
+                    .info-grid {
                         grid-template-columns: 1fr;
                     }
                 }

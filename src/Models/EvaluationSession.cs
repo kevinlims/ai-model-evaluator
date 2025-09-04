@@ -14,6 +14,7 @@ namespace ModelEvaluator.Models
         public List<EvaluationResult> Results { get; set; } = new();
         public Dictionary<string, object> Configuration { get; set; } = new();
         public string? Description { get; set; }
+        public DeviceMetadata? DeviceInfo { get; set; }
         
         public TimeSpan? Duration => EndTime?.Subtract(StartTime);
         public bool IsCompleted => EndTime.HasValue;

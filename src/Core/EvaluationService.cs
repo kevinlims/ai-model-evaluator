@@ -89,6 +89,17 @@ namespace ModelEvaluator.Core
                 Description = description
             };
 
+            // Collect device metadata
+            try
+            {
+                session.DeviceInfo = DeviceMetadata.Collect();
+                _logger.LogInformation("Collected device metadata for session {SessionId}", session.Id);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to collect device metadata for session {SessionId}", session.Id);
+            }
+
             _logger.LogInformation("Started evaluation session {SessionId}", session.Id);
             
             return await Task.FromResult(session);
