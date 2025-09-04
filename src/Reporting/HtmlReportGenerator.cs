@@ -251,6 +251,7 @@ namespace ModelEvaluator.Reporting
             html.AppendLine("                        <tr>");
             html.AppendLine("                            <th>Provider</th>");
             html.AppendLine("                            <th>Model</th>");
+            html.AppendLine("                            <th>Model Info</th>");
             html.AppendLine("                            <th>Prompt</th>");
             html.AppendLine("                            <th>Response</th>");
             html.AppendLine("                            <th>Duration</th>");
@@ -265,9 +266,31 @@ namespace ModelEvaluator.Reporting
                 var truncatedPrompt = result.Prompt.Length > 100 ? result.Prompt.Substring(0, 100) + "..." : result.Prompt;
                 var truncatedResponse = result.Response.Length > 200 ? result.Response.Substring(0, 200) + "..." : result.Response;
                 
+                // Extract model information from metadata for Azure AI Foundry Local provider
+                var modelInfo = "";
+                if (result.ProviderId == "azure-foundry-local" && result.Metadata != null)
+                {
+                    var foundryId = result.Metadata.TryGetValue("foundry_model_id", out var id) ? id?.ToString() : null;
+                    var foundryAlias = result.Metadata.TryGetValue("model_alias", out var alias) ? alias?.ToString() : null;
+                    
+                    if (!string.IsNullOrEmpty(foundryId))
+                    {
+                        modelInfo = foundryId;
+                        if (!string.IsNullOrEmpty(foundryAlias) && foundryAlias != foundryId)
+                        {
+                            modelInfo += $" ({foundryAlias})";
+                        }
+                    }
+                    else if (!string.IsNullOrEmpty(foundryAlias))
+                    {
+                        modelInfo = foundryAlias;
+                    }
+                }
+                
                 html.AppendLine("                        <tr>");
                 html.AppendLine($"                           <td>{result.ProviderId}</td>");
                 html.AppendLine($"                           <td>{result.ModelId}</td>");
+                html.AppendLine($"                           <td>{System.Web.HttpUtility.HtmlEncode(modelInfo)}</td>");
                 html.AppendLine($"                           <td title=\"{System.Web.HttpUtility.HtmlEncode(result.Prompt)}\">{System.Web.HttpUtility.HtmlEncode(truncatedPrompt)}</td>");
                 html.AppendLine($"                           <td title=\"{System.Web.HttpUtility.HtmlEncode(result.Response)}\">{System.Web.HttpUtility.HtmlEncode(truncatedResponse)}</td>");
                 html.AppendLine($"                           <td>{result.Duration.TotalMilliseconds:F0}ms</td>");

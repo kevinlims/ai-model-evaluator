@@ -142,9 +142,14 @@ namespace ModelEvaluator.Providers
                 result.Response = completion.Value.Content[0].Text;
                 result.IsSuccess = true;
 
-                // Add metadata
-                result.Metadata["model_id"] = modelId;
+                // Get the actual model info from foundry to include in metadata
+                var modelInfo = await GetModelInfoAsync(modelId, cancellationToken);
+
+                // Add comprehensive metadata including foundry model details
+                result.Metadata["model_alias"] = modelId;
                 result.Metadata["provider"] = "azure-foundry-local";
+                result.Metadata["foundry_model_id"] = modelInfo?.ModelId ?? modelId;
+                result.Metadata["foundry_model_info"] = modelInfo?.ToString() ?? "Unknown";
                 result.Metadata["completion_tokens"] = completion.Value.Usage?.OutputTokenCount ?? 0;
                 result.Metadata["prompt_tokens"] = completion.Value.Usage?.InputTokenCount ?? 0;
                 result.Metadata["total_tokens"] = completion.Value.Usage?.TotalTokenCount ?? 0;
@@ -214,6 +219,29 @@ namespace ModelEvaluator.Providers
             _chatClients[modelId] = chatClient;
 
             return chatClient;
+        }
+
+        private async Task<ModelInfo?> GetModelInfoAsync(string modelId, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                // Get or create manager for this model
+                if (!_managers.TryGetValue(modelId, out var manager))
+                {
+                    // If manager doesn't exist yet, create it
+                    manager = await FoundryLocalManager.StartModelAsync(aliasOrModelId: modelId);
+                    _managers[modelId] = manager;
+                }
+
+                // Get detailed model information from foundry
+                var modelInfo = await manager.GetModelInfoAsync(aliasOrModelId: modelId);
+                return modelInfo;
+            }
+            catch (Exception)
+            {
+                // Return null if unable to get model info
+                return null;
+            }
         }
 
         public void Dispose()
