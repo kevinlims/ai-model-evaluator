@@ -40,6 +40,9 @@ artifacts/
 reports/
 *.html
 
+# Distribution and build artifacts
+dist/
+
 # API Keys and secrets
 appsettings.local.json
 *.key

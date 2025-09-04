@@ -29,6 +29,7 @@ function Show-Usage {
     Write-Host "  test      - Run tests" -ForegroundColor Green
     Write-Host "  watch     - Run in watch mode (auto-restart on changes)" -ForegroundColor Green
     Write-Host "  package   - Package for distribution" -ForegroundColor Green
+    Write-Host "  portable  - Build portable Windows executable" -ForegroundColor Green
     Write-Host "  status    - Show git status and project info" -ForegroundColor Green
     Write-Host ""
     Write-Host "Configuration:" -ForegroundColor White
@@ -40,6 +41,7 @@ function Show-Usage {
     Write-Host "  .\dev.ps1 build Release" -ForegroundColor Cyan
     Write-Host "  .\dev.ps1 run" -ForegroundColor Cyan
     Write-Host "  .\dev.ps1 watch" -ForegroundColor Cyan
+    Write-Host "  .\dev.ps1 portable" -ForegroundColor Cyan
     Write-Host "  .\dev.ps1 clean" -ForegroundColor Cyan
 }
 
@@ -115,6 +117,19 @@ switch ($Command.ToLower()) {
         }
         
         Write-Host "✅ Packaging complete! Check 'package' folder." -ForegroundColor Green
+    }
+    
+    "portable" {
+        Write-Host "🚀 Building Portable Windows Executable..." -ForegroundColor Cyan
+        Write-Host "===========================================" -ForegroundColor Cyan
+        
+        # Call the portable build script
+        if (Test-Path "scripts\build-portable.ps1") {
+            & "scripts\build-portable.ps1" -Configuration Release
+        } else {
+            Write-Error "❌ Portable build script not found at scripts\build-portable.ps1"
+            exit 1
+        }
     }
     
     "status" {
