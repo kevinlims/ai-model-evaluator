@@ -354,6 +354,15 @@ namespace ModelEvaluator.Reporting
                     html.AppendLine($"                       </div>");
                 }
                 
+                // Token performance metrics
+                if (metrics.TimeToFirstToken.HasValue)
+                {
+                    html.AppendLine($"                       <div class=\"metric\">");
+                    html.AppendLine($"                           <span class=\"metric-label\">Time to First Token:</span>");
+                    html.AppendLine($"                           <span class=\"metric-value\">{metrics.TimeToFirstToken.Value.TotalMilliseconds:F0}ms</span>");
+                    html.AppendLine($"                       </div>");
+                }
+                
                 html.AppendLine("                    </div>");
                 html.AppendLine("                </div>");
             }

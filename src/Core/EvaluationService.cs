@@ -143,8 +143,17 @@ namespace ModelEvaluator.Core
                 // Perform the evaluation
                 result = await provider.EvaluateAsync(modelId, prompt, cancellationToken);
 
-                // Stop metrics collection and attach to result
-                result.Metrics = await _metricsCollector.StopCollectionAsync(cancellationToken);
+                // Stop metrics collection and merge with provider metrics
+                var systemMetrics = await _metricsCollector.StopCollectionAsync(cancellationToken);
+                
+                // Merge token performance metrics from provider with system metrics
+                if (result.Metrics != null)
+                {
+                    // Preserve time to first token metric from provider
+                    systemMetrics.TimeToFirstToken = result.Metrics.TimeToFirstToken;
+                }
+                
+                result.Metrics = systemMetrics;
             }
             catch (Exception ex)
             {

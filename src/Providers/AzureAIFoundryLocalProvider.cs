@@ -123,8 +123,15 @@ namespace ModelEvaluator.Providers
                 ModelId = modelId,
                 ProviderId = Id,
                 Prompt = prompt,
-                StartTime = DateTime.UtcNow
+                StartTime = DateTime.UtcNow,
+                Metrics = new MetricsData
+                {
+                    StartTime = DateTime.UtcNow
+                }
             };
+
+            DateTime? firstTokenTime = null;
+            var responseBuilder = new System.Text.StringBuilder();
 
             try
             {
@@ -137,9 +144,35 @@ namespace ModelEvaluator.Providers
                     ChatMessage.CreateUserMessage(prompt)
                 };
 
-                var completion = await chatClient.CompleteChatAsync(messages, cancellationToken: cancellationToken);
+                // Use streaming to capture time to first token
+                var streamingOptions = new ChatCompletionOptions();
+                
+                await foreach (var streamingChatUpdate in chatClient.CompleteChatStreamingAsync(messages, streamingOptions, cancellationToken))
+                {
+                    // Capture first token time
+                    if (!firstTokenTime.HasValue && streamingChatUpdate.ContentUpdate?.Count > 0)
+                    {
+                        var firstUpdate = streamingChatUpdate.ContentUpdate.FirstOrDefault();
+                        if (!string.IsNullOrEmpty(firstUpdate?.Text))
+                        {
+                            firstTokenTime = DateTime.UtcNow;
+                        }
+                    }
 
-                result.Response = completion.Value.Content[0].Text;
+                    // Accumulate the response content
+                    if (streamingChatUpdate.ContentUpdate != null)
+                    {
+                        foreach (var contentUpdate in streamingChatUpdate.ContentUpdate)
+                        {
+                            if (!string.IsNullOrEmpty(contentUpdate.Text))
+                            {
+                                responseBuilder.Append(contentUpdate.Text);
+                            }
+                        }
+                    }
+                }
+
+                result.Response = responseBuilder.ToString();
                 result.IsSuccess = true;
 
                 // Get the actual model info from foundry to include in metadata
@@ -150,9 +183,13 @@ namespace ModelEvaluator.Providers
                 result.Metadata["provider"] = "azure-foundry-local";
                 result.Metadata["foundry_model_id"] = modelInfo?.ModelId ?? modelId;
                 result.Metadata["foundry_model_info"] = modelInfo?.ToString() ?? "Unknown";
-                result.Metadata["completion_tokens"] = completion.Value.Usage?.OutputTokenCount ?? 0;
-                result.Metadata["prompt_tokens"] = completion.Value.Usage?.InputTokenCount ?? 0;
-                result.Metadata["total_tokens"] = completion.Value.Usage?.TotalTokenCount ?? 0;
+                
+                // Add timing metadata
+                if (firstTokenTime.HasValue)
+                {
+                    result.Metadata["first_token_time"] = firstTokenTime.Value;
+                    result.Metadata["time_to_first_token_ms"] = (firstTokenTime.Value - result.StartTime).TotalMilliseconds;
+                }
             }
             catch (Exception ex)
             {
@@ -168,6 +205,16 @@ namespace ModelEvaluator.Providers
             finally
             {
                 result.EndTime = DateTime.UtcNow;
+
+                // Calculate token performance metrics if we have the data
+                if (result.Metrics != null && result.IsSuccess)
+                {
+                    // Update metrics end time
+                    result.Metrics.EndTime = result.EndTime;
+                    
+                    // Only calculate time to first token metric
+                    result.Metrics.CalculateTokenMetrics(firstTokenTime, result.Duration);
+                }
             }
 
             return result;
