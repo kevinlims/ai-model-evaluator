@@ -37,6 +37,17 @@ namespace ModelEvaluator.Core
             CancellationToken cancellationToken = default);
         
         /// <summary>
+        /// Evaluate a prompt with streaming response updates
+        /// </summary>
+        Task<EvaluationResult> EvaluateWithStreamingAsync(
+            string providerId, 
+            string modelId, 
+            string prompt, 
+            Action<string>? onStreamingUpdate = null,
+            EvaluationSession? session = null,
+            CancellationToken cancellationToken = default);
+        
+        /// <summary>
         /// Complete an evaluation session
         /// </summary>
         Task CompleteSessionAsync(EvaluationSession session);

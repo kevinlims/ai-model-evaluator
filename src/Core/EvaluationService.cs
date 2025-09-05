@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using ModelEvaluator.Core;
 using ModelEvaluator.Models;
+using ModelEvaluator.Providers;
 
 namespace ModelEvaluator.Core
 {
@@ -192,6 +193,107 @@ namespace ModelEvaluator.Core
             }
 
             _logger.LogInformation("Completed evaluation with provider {ProviderId}, model {ModelId}. Success: {IsSuccess}, Duration: {Duration}ms",
+                providerId, modelId, result.IsSuccess, result.Duration.TotalMilliseconds);
+
+            return result;
+        }
+
+        public async Task<EvaluationResult> EvaluateWithStreamingAsync(
+            string providerId, 
+            string modelId, 
+            string prompt, 
+            Action<string>? onStreamingUpdate = null,
+            EvaluationSession? session = null,
+            CancellationToken cancellationToken = default)
+        {
+            var provider = await GetProviderAsync(providerId);
+            if (provider == null)
+            {
+                return new EvaluationResult
+                {
+                    ProviderId = providerId,
+                    ModelId = modelId,
+                    Prompt = prompt,
+                    StartTime = DateTime.UtcNow,
+                    EndTime = DateTime.UtcNow,
+                    IsSuccess = false,
+                    ErrorMessage = $"Provider '{providerId}' is not available"
+                };
+            }
+
+            _logger.LogInformation("Starting streaming evaluation with provider {ProviderId}, model {ModelId}", 
+                providerId, modelId);
+
+            EvaluationResult result;
+            
+            try
+            {
+                // Track AI model processes for enhanced metrics with provider context
+                _metricsCollector.TrackProviderProcesses(providerId, modelId);
+                
+                // Start metrics collection
+                await _metricsCollector.StartCollectionAsync(cancellationToken);
+
+                // Perform the evaluation with streaming if provider supports it
+                if (provider is AzureAIFoundryLocalProvider azureProvider)
+                {
+                    result = await azureProvider.EvaluateWithStreamingAsync(modelId, prompt, onStreamingUpdate, cancellationToken);
+                }
+                else
+                {
+                    // Fallback to regular evaluation for providers that don't support streaming
+                    result = await provider.EvaluateAsync(modelId, prompt, cancellationToken);
+                }
+
+                // Stop metrics collection and merge with provider metrics
+                var systemMetrics = await _metricsCollector.StopCollectionAsync(cancellationToken);
+                
+                // Merge token performance metrics from provider with system metrics
+                if (result.Metrics != null)
+                {
+                    // Preserve time to first token metric from provider
+                    systemMetrics.TimeToFirstToken = result.Metrics.TimeToFirstToken;
+                }
+                
+                result.Metrics = systemMetrics;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during streaming evaluation with provider {ProviderId}, model {ModelId}", 
+                    providerId, modelId);
+
+                result = new EvaluationResult
+                {
+                    ProviderId = providerId,
+                    ModelId = modelId,
+                    Prompt = prompt,
+                    StartTime = DateTime.UtcNow,
+                    EndTime = DateTime.UtcNow,
+                    IsSuccess = false,
+                    ErrorMessage = ex.Message
+                };
+
+                // Attempt to stop metrics collection even on error
+                try
+                {
+                    if (_metricsCollector.IsCollecting)
+                    {
+                        result.Metrics = await _metricsCollector.StopCollectionAsync(cancellationToken);
+                    }
+                }
+                catch (Exception metricsEx)
+                {
+                    _logger.LogWarning(metricsEx, "Failed to stop metrics collection after evaluation error");
+                }
+            }
+
+            // Add result to session if provided
+            if (session != null)
+            {
+                session.Results.Add(result);
+            }
+
+            _logger.LogInformation("Completed streaming evaluation with provider {ProviderId}, model {ModelId}. Success: {IsSuccess}, Duration: {Duration}ms",
                 providerId, modelId, result.IsSuccess, result.Duration.TotalMilliseconds);
 
             return result;

@@ -176,9 +176,53 @@ namespace ModelEvaluator.UI
             Console.WriteLine();
             Console.WriteLine("Evaluating... This may take a moment.");
             Console.WriteLine("Collecting metrics: CPU, Memory, GPU, NPU usage...");
+            Console.WriteLine();
+            Console.Write("Response: ");
             
-            var result = await _evaluationService.EvaluateAsync(
-                selectedProvider.Id, selectedModel, prompt, session, cancellationToken);
+            var streamingResponse = new System.Text.StringBuilder();
+            var lastDisplayLength = 0;
+            
+            var result = await _evaluationService.EvaluateWithStreamingAsync(
+                selectedProvider.Id, selectedModel, prompt, 
+                chunk => {
+                    // Append the new chunk to our response
+                    streamingResponse.Append(chunk);
+                    
+                    // Get the current response and clean it for display
+                    var currentResponse = streamingResponse.ToString()
+                        .Replace('\n', ' ')  // Replace newlines with spaces
+                        .Replace('\r', ' ')  // Replace carriage returns with spaces
+                        .Replace('\t', ' '); // Replace tabs with spaces
+                    
+                    // Calculate available width for the response
+                    var maxWidth = Console.WindowWidth - "Response: ".Length - 5; // Leave some margin
+                    
+                    // Prepare display text
+                    string displayText;
+                    if (currentResponse.Length > maxWidth)
+                    {
+                        // Show the last part of the response if it's too long
+                        displayText = "..." + currentResponse.Substring(currentResponse.Length - maxWidth + 3);
+                    }
+                    else
+                    {
+                        displayText = currentResponse;
+                    }
+                    
+                    // Clear the previous response text by overwriting with spaces
+                    if (lastDisplayLength > 0)
+                    {
+                        Console.Write('\r' + "Response: " + new string(' ', lastDisplayLength));
+                    }
+                    
+                    // Write the new response
+                    Console.Write('\r' + "Response: " + displayText);
+                    lastDisplayLength = displayText.Length;
+                }, 
+                session, cancellationToken);
+
+            Console.WriteLine(); // Move to next line after streaming
+            Console.WriteLine();
 
             await _evaluationService.CompleteSessionAsync(session);
 
@@ -258,14 +302,21 @@ namespace ModelEvaluator.UI
                 
                 try
                 {
-                    var result = await _evaluationService.EvaluateAsync(
-                        selectedProvider.Id, selectedModel, prompt, session, cancellationToken);
+                    var currentResponse = new System.Text.StringBuilder();
+                    var result = await _evaluationService.EvaluateWithStreamingAsync(
+                        selectedProvider.Id, selectedModel, prompt, 
+                        chunk => {
+                            // For multiple runs, just show a progress indicator
+                            currentResponse.Append(chunk);
+                            Console.Write(".");
+                        }, 
+                        session, cancellationToken);
                     
                     results.Add(result);
                     
                     if (result.IsSuccess)
                     {
-                        Console.WriteLine($"✓ Success ({result.Duration.TotalMilliseconds:F0}ms)");
+                        Console.WriteLine($" ✓ Success ({result.Duration.TotalMilliseconds:F0}ms)");
                     }
                     else
                     {

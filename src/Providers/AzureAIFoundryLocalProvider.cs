@@ -118,6 +118,23 @@ namespace ModelEvaluator.Providers
 
         public async Task<EvaluationResult> EvaluateAsync(string modelId, string prompt, CancellationToken cancellationToken = default)
         {
+            return await EvaluateWithStreamingAsync(modelId, prompt, null, cancellationToken);
+        }
+
+        /// <summary>
+        /// Evaluate a prompt with optional streaming progress callback
+        /// </summary>
+        /// <param name="modelId">The model to use</param>
+        /// <param name="prompt">The prompt to evaluate</param>
+        /// <param name="onStreamingUpdate">Optional callback for streaming updates</param>
+        /// <param name="cancellationToken">Cancellation token</param>
+        /// <returns>Complete evaluation result</returns>
+        public async Task<EvaluationResult> EvaluateWithStreamingAsync(
+            string modelId, 
+            string prompt, 
+            Action<string>? onStreamingUpdate = null, 
+            CancellationToken cancellationToken = default)
+        {
             var result = new EvaluationResult
             {
                 ModelId = modelId,
@@ -159,7 +176,7 @@ namespace ModelEvaluator.Providers
                         }
                     }
 
-                    // Accumulate the response content
+                    // Accumulate the response content and stream updates
                     if (streamingChatUpdate.ContentUpdate != null)
                     {
                         foreach (var contentUpdate in streamingChatUpdate.ContentUpdate)
@@ -167,6 +184,9 @@ namespace ModelEvaluator.Providers
                             if (!string.IsNullOrEmpty(contentUpdate.Text))
                             {
                                 responseBuilder.Append(contentUpdate.Text);
+                                
+                                // Invoke streaming callback with the new content chunk
+                                onStreamingUpdate?.Invoke(contentUpdate.Text);
                             }
                         }
                     }
